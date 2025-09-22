@@ -224,30 +224,72 @@ class WhatsAppWebhookView(View):
 
         if audio_url:
             try:
-                audio_data = requests.get(audio_url).content
-                ai_response, lang = safe_gemini_conversational_audio_or_text(audio_bytes=audio_data, input_format='ogg')
+                logger.info(f"🎵 Processing WhatsApp audio from {audio_url}")
+                
+                # Download the audio file with timeout and error handling
+                try:
+                    response = requests.get(audio_url, timeout=30)
+                    response.raise_for_status()
+                    audio_data = response.content
+                    logger.info(f"✅ Downloaded audio file: {len(audio_data)} bytes")
+                except requests.exceptions.Timeout:
+                    logger.error("❌ Audio download timed out")
+                    send_whatsapp_message(user_phone, "Sorry, your audio message took too long to download. Can you try a shorter message?")
+                    return HttpResponse(str(twiml_response), content_type='text/xml')
+                except Exception as download_error:
+                    logger.error(f"❌ Failed to download audio: {download_error}")
+                    send_whatsapp_message(user_phone, "Sorry, I couldn't download your audio message. Can you try again or send text?")
+                    return HttpResponse(str(twiml_response), content_type='text/xml')
+
+                # Enhanced audio processing for WhatsApp OGG format
+                processed_audio_data = self.process_whatsapp_audio(audio_data, 'ogg')
+                if not processed_audio_data:
+                    logger.error("❌ WhatsApp audio processing failed completely")
+                    send_whatsapp_message(user_phone, "I couldn't process your audio format. Could you try sending a text message instead?")
+                    return HttpResponse(str(twiml_response), content_type='text/xml')
+
+                # Try processing with Gemini
+                try:
+                    ai_response, lang = safe_gemini_conversational_audio_or_text(
+                        audio_bytes=processed_audio_data, 
+                        input_format='wav'  # Now we're passing WAV format after processing
+                    )
+                except Exception as gemini_error:
+                    logger.error(f"❌ Audio processing failed: {gemini_error}")
+                    # Fallback: try with original audio data as OGG
+                    try:
+                        logger.info("Trying fallback with original OGG data")
+                        ai_response, lang = safe_gemini_conversational_audio_or_text(
+                            audio_bytes=audio_data, 
+                            input_format='ogg'
+                        )
+                    except Exception as fallback_error:
+                        logger.error(f"❌ Fallback OGG processing also failed: {fallback_error}")
+                        send_whatsapp_message(user_phone, "I had trouble understanding your audio. Could you try sending a text message instead?")
+                        return HttpResponse(str(twiml_response), content_type='text/xml')
+
                 if not ai_response:
-                    logger.warning("Gemini failed to generate response from WhatsApp audio.")
-                    # Use REST API to send error message
-                    send_whatsapp_message(user_phone, "Sorry, I couldn't process your audio message. Can you try again or send a text?")
-                    return HttpResponse(str(twiml_response), content_type='text/xml')  # Empty TwiML
+                    logger.warning("Gemini returned empty response from WhatsApp audio.")
+                    send_whatsapp_message(user_phone, "I couldn't understand anything in your audio message. Could you try speaking more clearly or send a text?")
+                    return HttpResponse(str(twiml_response), content_type='text/xml')
 
             except Exception as e:
-                logger.error("❌ WhatsApp audio processing failed: %s", str(e))
-                send_whatsapp_message(user_phone, "Oops! There was an error processing your audio. Please try again.")
-                return HttpResponse(str(twiml_response), content_type='text/xml')  # Empty TwiML
+                logger.error(f"❌ Complete WhatsApp audio processing failed: {str(e)}")
+                send_whatsapp_message(user_phone, "There was an unexpected error with your audio message. Please try a shorter message or use text.")
+                return HttpResponse(str(twiml_response), content_type='text/xml')
 
         elif body_text:
+            # Text processing remains the same
             ai_response, lang = safe_gemini_conversational_audio_or_text(text_input=body_text)
             if not ai_response:
                 logger.warning("Gemini failed to generate response from WhatsApp text.")
                 send_whatsapp_message(user_phone, "Sorry, I couldn't understand your text message. Can you rephrase?")
-                return HttpResponse(str(twiml_response), content_type='text/xml')  # Empty TwiML
+                return HttpResponse(str(twiml_response), content_type='text/xml')
             
         else:
             logger.warning("WhatsApp webhook received no audio or text input.")
             send_whatsapp_message(user_phone, "I didn't receive any message. Please send an audio or text message.")
-            return HttpResponse(str(twiml_response), content_type='text/xml')  # Empty TwiML
+            return HttpResponse(str(twiml_response), content_type='text/xml')
 
         try:
             if ai_response:
@@ -281,3 +323,105 @@ class WhatsAppWebhookView(View):
             logger.error("❌ WhatsApp response sending failed: %s", str(e))
             send_whatsapp_message(user_phone, "An unexpected error occurred while trying to send my response. Please try again later.")
             return HttpResponse(str(twiml_response), content_type='text/xml')
+
+    def process_whatsapp_audio(self, audio_bytes, input_format):
+        """
+        Specialized audio processing for WhatsApp OGG files
+        Uses FFmpeg directly for better compatibility
+        """
+        import tempfile
+        import os
+        import subprocess
+        
+        try:
+            # Create temporary files
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{input_format}') as input_file:
+                input_file.write(audio_bytes)
+                input_path = input_file.name
+            
+            output_path = input_path.replace(f'.{input_format}', '.wav')
+            
+            # Try multiple FFmpeg approaches for WhatsApp OGG files
+            ffmpeg_commands = [
+                # Best approach for WhatsApp OGG
+                [
+                    'ffmpeg', '-y', '-i', input_path,
+                    '-acodec', 'pcm_s16le', '-ac', '1', '-ar', '16000',
+                    '-f', 'wav', output_path
+                ],
+                # Alternative approach
+                [
+                    'ffmpeg', '-y', '-i', input_path,
+                    '-c:a', 'pcm_s16le', '-ac', '1', '-ar', '16000',
+                    output_path
+                ],
+                # Simple conversion as fallback
+                [
+                    'ffmpeg', '-y', '-i', input_path,
+                    output_path
+                ]
+            ]
+            
+            for i, cmd in enumerate(ffmpeg_commands):
+                try:
+                    logger.info(f"Trying FFmpeg command {i+1} for WhatsApp audio")
+                    result = subprocess.run(
+                        cmd, 
+                        capture_output=True, 
+                        text=True, 
+                        timeout=30
+                    )
+                    
+                    if result.returncode == 0:
+                        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                            with open(output_path, 'rb') as f:
+                                wav_data = f.read()
+                            
+                            logger.info(f"✅ WhatsApp audio processing successful with command {i+1}")
+                            
+                            # Clean up temporary files
+                            try:
+                                os.unlink(input_path)
+                                os.unlink(output_path)
+                            except:
+                                pass
+                                
+                            return wav_data
+                        else:
+                            logger.warning(f"Command {i+1} succeeded but output file is empty/missing")
+                    else:
+                        logger.warning(f"FFmpeg command {i+1} failed: {result.stderr}")
+                        
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"FFmpeg command {i+1} timed out")
+                except Exception as cmd_error:
+                    logger.warning(f"FFmpeg command {i+1} error: {cmd_error}")
+            
+            # If all FFmpeg approaches fail, fall back to the original normalize_audio function
+            logger.info("Falling back to original normalize_audio function")
+            from your_audio_module import normalize_audio  # Import your existing function
+            fallback_result = normalize_audio(audio_bytes, input_format)
+            
+            # Clean up temporary files
+            try:
+                os.unlink(input_path)
+                if os.path.exists(output_path):
+                    os.unlink(output_path)
+            except:
+                pass
+                
+            return fallback_result
+                
+        except Exception as e:
+            logger.error(f"❌ WhatsApp audio processing completely failed: {str(e)}")
+            
+            # Clean up any remaining temporary files
+            try:
+                if 'input_path' in locals() and os.path.exists(input_path):
+                    os.unlink(input_path)
+                if 'output_path' in locals() and os.path.exists(output_path):
+                    os.unlink(output_path)
+            except:
+                pass
+                
+            return None

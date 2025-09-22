@@ -5,6 +5,8 @@ import time
 import hashlib
 import mimetypes
 import requests
+import subprocess
+import tempfile
 import logging
 from spitch import Spitch
 from pydub import AudioSegment
