@@ -266,12 +266,24 @@ def send_whatsapp_audio(to_number, media_url, text="Here's your answer 🎧"):
         return None
     try:
         twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        
+        # Ensure both numbers are in WhatsApp format
+        from_whatsapp = TWILIO_WHATSAPP_NUMBER
+        to_whatsapp = to_number
+        
+        # Add 'whatsapp:' prefix if not already present
+        if not from_whatsapp.startswith('whatsapp:'):
+            from_whatsapp = f'whatsapp:{from_whatsapp}'
+        if not to_whatsapp.startswith('whatsapp:'):
+            to_whatsapp = f'whatsapp:{to_whatsapp}'
+        
         message = twilio_client.messages.create(
-            from_=TWILIO_WHATSAPP_NUMBER,
-            to=to_number,
+            from_=from_whatsapp,
+            to=to_whatsapp,
             body=text,
             media_url=[media_url]
         )
+        logger.info(f"✅ WhatsApp audio sent: {message.sid}")
         return message.sid
     except Exception as e:
         logger.error(f"Failed to send WhatsApp audio: {e}")
@@ -283,11 +295,23 @@ def send_whatsapp_message(to_number, text_message):
         return None
     try:
         twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        
+        # Ensure both numbers are in WhatsApp format
+        from_whatsapp = TWILIO_WHATSAPP_NUMBER
+        to_whatsapp = to_number
+        
+        # Add 'whatsapp:' prefix if not already present
+        if not from_whatsapp.startswith('whatsapp:'):
+            from_whatsapp = f'whatsapp:{from_whatsapp}'
+        if not to_whatsapp.startswith('whatsapp:'):
+            to_whatsapp = f'whatsapp:{to_whatsapp}'
+        
         message = twilio_client.messages.create(
-            from_=TWILIO_WHATSAPP_NUMBER,
-            to=to_number,
+            from_=from_whatsapp,
+            to=to_whatsapp,
             body=text_message
         )
+        logger.info(f"✅ WhatsApp text sent: {message.sid}")
         return message.sid
     except Exception as e:
         logger.error(f"Failed to send WhatsApp text message: {e}")
