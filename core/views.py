@@ -13,6 +13,7 @@ from rest_framework.pagination import PageNumberPagination
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.http import HttpResponse, JsonResponse
+from twilio.twiml.messaging_response import MessagingResponse
 from django.views import View
 
 from .models import UserProfile, QueryHistory, LessonContent
@@ -218,32 +219,35 @@ class WhatsAppWebhookView(View):
         lang = "en"
         audio_reply_url = None
 
+        # Create TwiML response for acknowledgment
+        twiml_response = MessagingResponse()
+
         if audio_url:
             try:
                 audio_data = requests.get(audio_url).content
                 ai_response, lang = safe_gemini_conversational_audio_or_text(audio_bytes=audio_data, input_format='ogg')
                 if not ai_response:
                     logger.warning("Gemini failed to generate response from WhatsApp audio.")
-                    # Respond with a textual error to the user via WhatsApp
+                    # Use REST API to send error message
                     send_whatsapp_message(user_phone, "Sorry, I couldn't process your audio message. Can you try again or send a text?")
-                    return JsonResponse({"error": "Could not process audio"}, status=500)
+                    return HttpResponse(str(twiml_response), content_type='text/xml')  # Empty TwiML
 
             except Exception as e:
                 logger.error("❌ WhatsApp audio processing failed: %s", str(e))
                 send_whatsapp_message(user_phone, "Oops! There was an error processing your audio. Please try again.")
-                return JsonResponse({"error": "Audio processing error"}, status=500)
+                return HttpResponse(str(twiml_response), content_type='text/xml')  # Empty TwiML
 
         elif body_text:
             ai_response, lang = safe_gemini_conversational_audio_or_text(text_input=body_text)
             if not ai_response:
                 logger.warning("Gemini failed to generate response from WhatsApp text.")
                 send_whatsapp_message(user_phone, "Sorry, I couldn't understand your text message. Can you rephrase?")
-                return JsonResponse({"error": "Could not process text"}, status=500)
+                return HttpResponse(str(twiml_response), content_type='text/xml')  # Empty TwiML
             
         else:
             logger.warning("WhatsApp webhook received no audio or text input.")
             send_whatsapp_message(user_phone, "I didn't receive any message. Please send an audio or text message.")
-            return HttpResponse("No audio or text provided", status=400)
+            return HttpResponse(str(twiml_response), content_type='text/xml')  # Empty TwiML
 
         try:
             if ai_response:
@@ -254,7 +258,7 @@ class WhatsAppWebhookView(View):
                         message_sid = send_whatsapp_audio(
                             to_number=user_phone,
                             media_url=audio_reply_url,
-                            text=ai_response # Also include text as caption if desired
+                            text=ai_response
                         )
                         logger.info("✅ WhatsApp audio sent with SID: %s", message_sid)
                     else:
@@ -270,14 +274,10 @@ class WhatsAppWebhookView(View):
                 logger.warning("⚠️ AI response was empty — no message sent to WhatsApp")
                 send_whatsapp_message(user_phone, "I'm sorry, I couldn't generate a response at this time. Please try again.")
 
-
-            return JsonResponse({
-                "query": body_text if body_text else "audio_input",
-                "response": ai_response,
-                "audio_url": audio_reply_url
-            })
-
+            # Return empty TwiML to acknowledge receipt
+            return HttpResponse(str(twiml_response), content_type='text/xml')
+            
         except Exception as e:
             logger.error("❌ WhatsApp response sending failed: %s", str(e))
             send_whatsapp_message(user_phone, "An unexpected error occurred while trying to send my response. Please try again later.")
-            return JsonResponse({"error": "Internal server error"}, status=500)
+            return HttpResponse(str(twiml_response), content_type='text/xml')
