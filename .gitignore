@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.p~ 
+*$py.class
+
+# Virtual Environment
+env/
+venv/
+voiceEnv/
+ENV/
+.venv/
+.env/
+.env.*  # includes things like .env.production
+.env
+
+# Django migrations
+**/migrations/
+!*/migrations/__init__.py
+
+# Django static files
+/staticfiles/
+/static/
+/media/
+
+# Logs
+*.log
+*.pot
+*.mo
+
+# Database
+*.sqlite3
+*.db
+
+# System
+.DS_Store
+Thumbs.db
+
+# VSCode and IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Byte-compiled
+*.so
+
+# Tests
+.coverage
+htmlcov/
+coverage.xml
+pytest_cache/
+.pytest_cache/
+nosetests.xml
+.testmondata
+
+# Build files
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+
+# Render logs and temp
+render.yaml
