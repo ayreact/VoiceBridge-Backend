@@ -138,6 +138,32 @@ class AssistantQueryView(views.APIView):
             "audio_url": audio_url
         })
 
+# === VOICE ASSISTANT ===
+class VoiceUploadView(views.APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        audio = request.FILES.get("file")
+        language = request.data.get("language", "en")
+        if not audio:
+            return Response({"error": "No audio provided"}, status=400)
+
+        audio_bytes = audio.read()
+        transcription = safe_stt(audio_bytes, language)
+        if not transcription:
+            return Response({"error": "STT failed"}, status=500)
+
+        ai_response = ask_gemini(transcription, language)
+        audio_url = safe_tts(ai_response, language, "voice")
+        # Ensure upload_to_cloudinary can handle BytesIO object or file path
+        uploaded_audio_url = upload_to_cloudinary(io.BytesIO(audio_bytes)) 
+
+        return Response({
+            "query": transcription,
+            "response": ai_response,
+            "audio_url": audio_url,
+            "uploaded_input_audio_url": uploaded_audio_url
+        })
+
 # === IVR ===
 @method_decorator(csrf_exempt, name='dispatch')
 class IVRHookView(View):
@@ -225,7 +251,7 @@ class IVRHookView(View):
             return HttpResponse(twiml, content_type="text/xml")
 
         except Exception as e:
-            logger.error("❌ IVR processing failed: %s", str(e)")
+            logger.error("❌ IVR processing failed: %s", str(e))
             return HttpResponse("""
                 <Response>
                     <Say voice="alice">Sorry, something went wrong. Please try again later.</Say>
@@ -259,52 +285,6 @@ class IVRHookView(View):
         except Exception as e:
             logger.error(f"❌ IVR media download failed: {e}")
             return None
-
-# === IVR ===
-# @method_decorator(csrf_exempt, name='dispatch')
-# class IVRHookView(View):
-#     def post(self, request):
-#         try:
-#             recording_url = request.POST.get("RecordingUrl")
-
-#             if not recording_url:
-#                 return HttpResponse("""
-#                     <Response>
-#                         <Say voice="alice">Welcome to VoiceBridge. Please speak after the beep.</Say>
-#                         <Record action="/api/assistant/ivr-hook" method="POST" maxLength="10" />
-#                     </Response>
-#                 """, content_type="text/xml")
-
-#             audio_data = requests.get(recording_url).content
-
-#             ai_response, lang = safe_gemini_conversational_audio_or_text(audio_bytes=audio_data, input_format='wav')
-#             if not ai_response:
-#                 logger.warning("STT failed or returned empty transcript for IVR.")
-#                 return HttpResponse("""
-#                     <Response>
-#                         <Say voice="alice">Sorry, we couldn't hear you. Please try again.</Say>
-#                     </Response>
-#                 """, content_type="text/xml")
-
-#             audio_url = safe_tts(ai_response, lang, "ivr")
-#             if not audio_url:
-#                 logger.warning("TTS failed for IVR — no audio to play.")
-#                 return HttpResponse("""
-#                     <Response>
-#                         <Say voice="alice">Sorry, I'm having trouble responding right now.</Say>
-#                     </Response>
-#                 """, content_type="text/xml")
-
-#             twiml = f"""<Response><Play>{audio_url}</Play></Response>"""
-#             return HttpResponse(twiml, content_type="text/xml")
-
-#         except Exception as e:
-#             logger.error("❌ IVR processing failed: %s", str(e))
-#             return HttpResponse("""
-#                 <Response>
-#                     <Say voice="alice">Sorry, something went wrong. Please try again later.</Say>
-#                 </Response>
-#             """, content_type="text/xml")
 
 # === WHATSAPP ===
 @method_decorator(csrf_exempt, name='dispatch')
