@@ -138,77 +138,173 @@ class AssistantQueryView(views.APIView):
             "audio_url": audio_url
         })
 
-# === VOICE ASSISTANT ===
-class VoiceUploadView(views.APIView):
-    permission_classes = [IsAuthenticated]
-    def post(self, request):
-        audio = request.FILES.get("file")
-        language = request.data.get("language", "en")
-        if not audio:
-            return Response({"error": "No audio provided"}, status=400)
-
-        audio_bytes = audio.read()
-        transcription = safe_stt(audio_bytes, language)
-        if not transcription:
-            return Response({"error": "STT failed"}, status=500)
-
-        ai_response = ask_gemini(transcription, language)
-        audio_url = safe_tts(ai_response, language, "voice")
-        # Ensure upload_to_cloudinary can handle BytesIO object or file path
-        uploaded_audio_url = upload_to_cloudinary(io.BytesIO(audio_bytes)) 
-
-        return Response({
-            "query": transcription,
-            "response": ai_response,
-            "audio_url": audio_url,
-            "uploaded_input_audio_url": uploaded_audio_url
-        })
-
 # === IVR ===
 @method_decorator(csrf_exempt, name='dispatch')
 class IVRHookView(View):
     def post(self, request):
         try:
+            logger.info("📞 IVR webhook called")
+            
+            # Log all incoming parameters for debugging
+            logger.info(f"IVR POST data: {dict(request.POST)}")
+            
             recording_url = request.POST.get("RecordingUrl")
+            call_sid = request.POST.get("CallSid")
+            
+            logger.info(f"Call SID: {call_sid}, Recording URL: {recording_url}")
 
             if not recording_url:
+                # Initial call - provide greeting and record instructions
+                logger.info("Initial IVR call - sending greeting")
+                twiml = """
+                <Response>
+                    <Say voice="alice">Welcome to VoiceBridge. Please speak your message after the beep. Press any key or wait for the beep and start talking.</Say>
+                    <Record 
+                        action="/api/assistant/ivr-hook" 
+                        method="POST" 
+                        maxLength="30"
+                        finishOnKey="#"
+                        playBeep="true"
+                        timeout="10"
+                    />
+                    <Say voice="alice">We didn't hear anything. Goodbye.</Say>
+                </Response>
+                """
+                return HttpResponse(twiml, content_type="text/xml")
+
+            # Process the recording
+            logger.info("Processing IVR recording")
+            
+            # Download recording with authentication (similar to WhatsApp)
+            try:
+                audio_data = self.download_twilio_media(recording_url)
+                if not audio_data:
+                    logger.error("Failed to download IVR recording")
+                    return HttpResponse("""
+                        <Response>
+                            <Say voice="alice">Sorry, we couldn't process your voice. Please try again.</Say>
+                        </Response>
+                    """, content_type="text/xml")
+            except Exception as download_error:
+                logger.error(f"IVR recording download failed: {download_error}")
                 return HttpResponse("""
                     <Response>
-                        <Say voice="alice">Welcome to VoiceBridge. Please speak after the beep.</Say>
-                        <Record action="/api/assistant/ivr-hook" method="POST" maxLength="10" />
+                        <Say voice="alice">Sorry, we couldn't access your voice. Please try again.</Say>
                     </Response>
                 """, content_type="text/xml")
 
-            audio_data = requests.get(recording_url).content
-
+            # Process with Gemini
+            logger.info("Sending audio to Gemini for processing")
             ai_response, lang = safe_gemini_conversational_audio_or_text(audio_bytes=audio_data, input_format='wav')
+            
             if not ai_response:
-                logger.warning("STT failed or returned empty transcript for IVR.")
+                logger.warning("Gemini failed to generate response for IVR.")
                 return HttpResponse("""
                     <Response>
-                        <Say voice="alice">Sorry, we couldn't hear you. Please try again.</Say>
+                        <Say voice="alice">Sorry, I didn't understand that. Please try speaking more clearly.</Say>
                     </Response>
                 """, content_type="text/xml")
 
+            # Generate TTS response
+            logger.info("Generating TTS response")
             audio_url = safe_tts(ai_response, lang, "ivr")
+            
             if not audio_url:
-                logger.warning("TTS failed for IVR — no audio to play.")
-                return HttpResponse("""
-                    <Response>
-                        <Say voice="alice">Sorry, I'm having trouble responding right now.</Say>
-                    </Response>
-                """, content_type="text/xml")
+                logger.warning("TTS failed for IVR — falling back to text-to-speech")
+                # Fallback: use Twilio's Say instead of Play
+                twiml = f"""
+                <Response>
+                    <Say voice="alice">{ai_response[:500]}</Say>  <!-- Limit length for TTS -->
+                </Response>
+                """
+                return HttpResponse(twiml, content_type="text/xml")
 
+            # Success - play the generated audio
+            logger.info("IVR processing successful - playing response")
             twiml = f"""<Response><Play>{audio_url}</Play></Response>"""
             return HttpResponse(twiml, content_type="text/xml")
 
         except Exception as e:
-            logger.error("❌ IVR processing failed: %s", str(e))
+            logger.error("❌ IVR processing failed: %s", str(e)")
             return HttpResponse("""
                 <Response>
                     <Say voice="alice">Sorry, something went wrong. Please try again later.</Say>
                 </Response>
             """, content_type="text/xml")
+
+    def download_twilio_media(self, media_url):
+        """
+        Reuse the same media download function from WhatsApp view
+        """
+        try:
+            auth = (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+            
+            response = requests.get(
+                media_url,
+                auth=auth,
+                timeout=30,
+                stream=True
+            )
+            response.raise_for_status()
+            
+            audio_data = response.content
+            
+            if len(audio_data) == 0:
+                logger.error("Downloaded IVR recording is empty")
+                return None
+                
+            logger.info(f"✅ Successfully downloaded IVR recording: {len(audio_data)} bytes")
+            return audio_data
+            
+        except Exception as e:
+            logger.error(f"❌ IVR media download failed: {e}")
+            return None
+
+# === IVR ===
+# @method_decorator(csrf_exempt, name='dispatch')
+# class IVRHookView(View):
+#     def post(self, request):
+#         try:
+#             recording_url = request.POST.get("RecordingUrl")
+
+#             if not recording_url:
+#                 return HttpResponse("""
+#                     <Response>
+#                         <Say voice="alice">Welcome to VoiceBridge. Please speak after the beep.</Say>
+#                         <Record action="/api/assistant/ivr-hook" method="POST" maxLength="10" />
+#                     </Response>
+#                 """, content_type="text/xml")
+
+#             audio_data = requests.get(recording_url).content
+
+#             ai_response, lang = safe_gemini_conversational_audio_or_text(audio_bytes=audio_data, input_format='wav')
+#             if not ai_response:
+#                 logger.warning("STT failed or returned empty transcript for IVR.")
+#                 return HttpResponse("""
+#                     <Response>
+#                         <Say voice="alice">Sorry, we couldn't hear you. Please try again.</Say>
+#                     </Response>
+#                 """, content_type="text/xml")
+
+#             audio_url = safe_tts(ai_response, lang, "ivr")
+#             if not audio_url:
+#                 logger.warning("TTS failed for IVR — no audio to play.")
+#                 return HttpResponse("""
+#                     <Response>
+#                         <Say voice="alice">Sorry, I'm having trouble responding right now.</Say>
+#                     </Response>
+#                 """, content_type="text/xml")
+
+#             twiml = f"""<Response><Play>{audio_url}</Play></Response>"""
+#             return HttpResponse(twiml, content_type="text/xml")
+
+#         except Exception as e:
+#             logger.error("❌ IVR processing failed: %s", str(e))
+#             return HttpResponse("""
+#                 <Response>
+#                     <Say voice="alice">Sorry, something went wrong. Please try again later.</Say>
+#                 </Response>
+#             """, content_type="text/xml")
 
 # === WHATSAPP ===
 @method_decorator(csrf_exempt, name='dispatch')
