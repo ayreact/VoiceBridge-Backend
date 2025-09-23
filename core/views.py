@@ -306,6 +306,10 @@ class WhatsAppWebhookView(View):
                         media_url=audio_reply_url,
                         text=ai_response  # This will be the text caption
                     )
+                    send_whatsapp_message(
+                        to_number=user_phone,
+                        text_message=ai_response
+                    )
                     logger.info("✅ WhatsApp audio+text response sent with SID: %s", message_sid)
                 else:
                     # If TTS fails, fall back to text-only
