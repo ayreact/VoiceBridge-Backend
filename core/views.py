@@ -282,7 +282,7 @@ class WhatsAppWebhookView(View):
                 return HttpResponse(str(twiml_response), content_type='text/xml')
 
         elif body_text:
-            # Text processing remains the same
+            # Text processing - always returns text that will be converted to audio
             ai_response, lang = safe_gemini_conversational_audio_or_text(text_input=body_text)
             if not ai_response:
                 logger.warning("Gemini failed to generate response from WhatsApp text.")
@@ -296,25 +296,25 @@ class WhatsAppWebhookView(View):
 
         try:
             if ai_response:
-                if audio_url: # If the original input was audio, respond with audio
-                    audio_reply_url = safe_tts(ai_response, lang, "wa")
+                # ALWAYS respond with audio + text, regardless of input type
+                audio_reply_url = safe_tts(ai_response, lang, "wa")
 
-                    if audio_reply_url:
-                        message_sid = send_whatsapp_audio(
-                            to_number=user_phone,
-                            media_url=audio_reply_url,
-                            text=ai_response
-                        )
-                        logger.info("✅ WhatsApp audio sent with SID: %s", message_sid)
-                    else:
-                        logger.warning("⚠️ TTS failed for WhatsApp audio response — no audio sent")
-                        send_whatsapp_message(user_phone, "I have a response, but I couldn't generate the audio. Here's the text: " + ai_response)
-                else: # If the original input was text, respond with text
+                if audio_reply_url:
+                    # Send audio message with text as caption
+                    message_sid = send_whatsapp_audio(
+                        to_number=user_phone,
+                        media_url=audio_reply_url,
+                        text=ai_response  # This will be the text caption
+                    )
+                    logger.info("✅ WhatsApp audio+text response sent with SID: %s", message_sid)
+                else:
+                    # If TTS fails, fall back to text-only
+                    logger.warning("⚠️ TTS failed — sending text-only response")
                     message_sid = send_whatsapp_message(
                         to_number=user_phone,
                         text_message=ai_response
                     )
-                    logger.info("✅ WhatsApp text sent with SID: %s", message_sid)
+                    logger.info("✅ WhatsApp text-only fallback sent with SID: %s", message_sid)
             else:
                 logger.warning("⚠️ AI response was empty — no message sent to WhatsApp")
                 send_whatsapp_message(user_phone, "I'm sorry, I couldn't generate a response at this time. Please try again.")
@@ -339,7 +339,7 @@ class WhatsAppWebhookView(View):
                 media_url,
                 auth=auth,
                 timeout=30,
-                stream=True  # Stream the response for better handling of large files
+                stream=True
             )
             response.raise_for_status()
             
