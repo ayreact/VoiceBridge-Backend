@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Load API keys and clients
 SPITCH_API_KEY = os.getenv('SPITCH_API_KEY', 'sk_nuIVeB9aNOb4ba7mtE6zjVWA9vyrZjfmdzxk45YJ') # Fallback for local testing
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-SPITCH_CLIENT = Spitch(api_key=SPITCH_API_KEY) # Use a distinct name to avoid conflict
+SPITCH_CLIENT = Spitch(api_key=SPITCH_API_KEY) 
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")

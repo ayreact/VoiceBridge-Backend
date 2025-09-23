@@ -16,6 +16,10 @@ from django.http import HttpResponse, JsonResponse
 from twilio.twiml.messaging_response import MessagingResponse
 from django.views import View
 
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
+
 from .models import UserProfile, QueryHistory, LessonContent
 from .serializers import (
     UserSerializer,
@@ -226,19 +230,18 @@ class WhatsAppWebhookView(View):
             try:
                 logger.info(f"🎵 Processing WhatsApp audio from {audio_url}")
                 
-                # Download the audio file with timeout and error handling
+                # Download the audio file with Twilio authentication
                 try:
-                    response = requests.get(audio_url, timeout=30)
-                    response.raise_for_status()
-                    audio_data = response.content
+                    audio_data = self.download_twilio_media(audio_url)
+                    if not audio_data:
+                        logger.error("❌ Failed to download audio with authentication")
+                        send_whatsapp_message(user_phone, "Sorry, I couldn't access your audio message. Can you try again?")
+                        return HttpResponse(str(twiml_response), content_type='text/xml')
+                    
                     logger.info(f"✅ Downloaded audio file: {len(audio_data)} bytes")
-                except requests.exceptions.Timeout:
-                    logger.error("❌ Audio download timed out")
-                    send_whatsapp_message(user_phone, "Sorry, your audio message took too long to download. Can you try a shorter message?")
-                    return HttpResponse(str(twiml_response), content_type='text/xml')
                 except Exception as download_error:
                     logger.error(f"❌ Failed to download audio: {download_error}")
-                    send_whatsapp_message(user_phone, "Sorry, I couldn't download your audio message. Can you try again or send text?")
+                    send_whatsapp_message(user_phone, "Sorry, I couldn't download your audio message. Can you try again?")
                     return HttpResponse(str(twiml_response), content_type='text/xml')
 
                 # Enhanced audio processing for WhatsApp OGG format
@@ -252,10 +255,10 @@ class WhatsAppWebhookView(View):
                 try:
                     ai_response, lang = safe_gemini_conversational_audio_or_text(
                         audio_bytes=processed_audio_data, 
-                        input_format='wav'  # Now we're passing WAV format after processing
+                        input_format='wav'
                     )
                 except Exception as gemini_error:
-                    logger.error(f"❌ Audio processing failed: {gemini_error}")
+                    logger.error(f"❌ Gemini audio processing failed: {gemini_error}")
                     # Fallback: try with original audio data as OGG
                     try:
                         logger.info("Trying fallback with original OGG data")
@@ -323,6 +326,48 @@ class WhatsAppWebhookView(View):
             logger.error("❌ WhatsApp response sending failed: %s", str(e))
             send_whatsapp_message(user_phone, "An unexpected error occurred while trying to send my response. Please try again later.")
             return HttpResponse(str(twiml_response), content_type='text/xml')
+
+    def download_twilio_media(self, media_url):
+        """
+        Download media from Twilio with proper authentication
+        """
+        try:
+            # Use your Twilio credentials for Basic Auth
+            auth = (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+            
+            response = requests.get(
+                media_url,
+                auth=auth,
+                timeout=30,
+                stream=True  # Stream the response for better handling of large files
+            )
+            response.raise_for_status()
+            
+            # Get the content
+            audio_data = response.content
+            
+            # Verify we actually got audio data
+            if len(audio_data) == 0:
+                logger.error("Downloaded audio file is empty")
+                return None
+                
+            logger.info(f"✅ Successfully downloaded media: {len(audio_data)} bytes")
+            return audio_data
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                logger.error("❌ Authentication failed for Twilio media download. Check your Twilio credentials.")
+            elif e.response.status_code == 404:
+                logger.error("❌ Media file not found. It may have expired.")
+            else:
+                logger.error(f"❌ HTTP error downloading media: {e}")
+            return None
+        except requests.exceptions.Timeout:
+            logger.error("❌ Timeout downloading media from Twilio")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Unexpected error downloading media: {e}")
+            return None
 
     def process_whatsapp_audio(self, audio_bytes, input_format):
         """
@@ -399,7 +444,7 @@ class WhatsAppWebhookView(View):
             
             # If all FFmpeg approaches fail, fall back to the original normalize_audio function
             logger.info("Falling back to original normalize_audio function")
-            from your_audio_module import normalize_audio  # Import your existing function
+            from your_audio_module import normalize_audio  # Make sure to import your actual module
             fallback_result = normalize_audio(audio_bytes, input_format)
             
             # Clean up temporary files
