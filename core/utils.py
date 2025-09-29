@@ -16,7 +16,7 @@ from twilio.rest import Client
 logger = logging.getLogger(__name__)
 
 # Load API keys and clients
-SPITCH_API_KEY = os.getenv('SPITCH_API_KEY', 'sk_nuIVeB9aNOb4ba7mtE6zjVWA9vyrZjfmdzxk45YJ') # Fallback for local testing
+SPITCH_API_KEY = os.getenv('SPITCH_API_KEY') # Fallback for local testing
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 SPITCH_CLIENT = Spitch(api_key=SPITCH_API_KEY) 
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_SID")
@@ -82,7 +82,7 @@ def ask_gemini(prompt, lang):
     if not genai:
         return "I'm sorry, the Google Generative AI library is not installed."
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
     # Friendly assistant personality
     if lang == 'undefined':
@@ -196,7 +196,7 @@ def safe_gemini_conversational_audio_or_text(audio_bytes=None, input_format=None
         return "I'm sorry, Gemini is not available.", "en"
     
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         prompt_parts = []
         
         base_instructions = (
@@ -211,11 +211,11 @@ def safe_gemini_conversational_audio_or_text(audio_bytes=None, input_format=None
         )
 
         if text_input:
-            logger.info("Processing text input with Gemini 1.5 Flash.")
+            logger.info("Processing text input with Gemini 2.0 Flash.")
             prompt_parts.append(text_input)
             prompt_parts.append(base_instructions)
         elif audio_bytes:
-            logger.info("Processing audio input with Gemini 1.5 Flash.")
+            logger.info("Processing audio input with Gemini 2.0 Flash.")
             usable_audio_wav = normalize_audio(audio_bytes, input_format=input_format)
             if not usable_audio_wav:
                 logger.error("Audio normalization failed using existing normalize_audio function.")

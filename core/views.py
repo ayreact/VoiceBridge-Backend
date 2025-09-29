@@ -524,7 +524,7 @@ class WhatsAppWebhookView(View):
             
             # If all FFmpeg approaches fail, fall back to the original normalize_audio function
             logger.info("Falling back to original normalize_audio function")
-            from your_audio_module import normalize_audio  # Make sure to import your actual module
+            from .utils import normalize_audio  # Make sure to import your actual module
             fallback_result = normalize_audio(audio_bytes, input_format)
             
             # Clean up temporary files
