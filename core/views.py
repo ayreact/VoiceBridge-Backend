@@ -7,14 +7,15 @@ from django.contrib.auth.models import User
 from rest_framework import generics, status, views
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.decorators import api_view
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.pagination import PageNumberPagination
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.http import HttpResponse, JsonResponse
-from twilio.twiml.messaging_response import MessagingResponse
 from django.views import View
+from twilio.twiml.messaging_response import MessagingResponse
 
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
@@ -28,7 +29,7 @@ from .serializers import (
     LessonContentSerializer,
     CustomTokenObtainPairSerializer
 )
-from .utils import ( # Import all helper functions from utils
+from .utils import ( 
     upload_to_cloudinary,
     ask_gemini,
     normalize_audio,
@@ -36,12 +37,15 @@ from .utils import ( # Import all helper functions from utils
     safe_stt,
     safe_gemini_conversational_audio_or_text,
     send_whatsapp_audio,
-    send_whatsapp_message # Also added send_whatsapp_message to utils
+    send_whatsapp_message 
 )
 
 
 logger = logging.getLogger(__name__)
 
+@api_view(['GET'])
+def home(request):
+    return Response({"message": "VoiceBridge BackEnd Active."}, status=status.HTTP_200_OK)
 
 # === AUTH ===
 class RegisterView(generics.CreateAPIView):
@@ -358,7 +362,6 @@ class WhatsAppWebhookView(View):
                 return HttpResponse(str(twiml_response), content_type='text/xml')
 
         elif body_text:
-            # Text processing - always returns text that will be converted to audio
             ai_response, lang = safe_gemini_conversational_audio_or_text(text_input=body_text)
             if not ai_response:
                 logger.warning("Gemini failed to generate response from WhatsApp text.")
@@ -465,22 +468,17 @@ class WhatsAppWebhookView(View):
                 input_path = input_file.name
             
             output_path = input_path.replace(f'.{input_format}', '.wav')
-            
-            # Try multiple FFmpeg approaches for WhatsApp OGG files
             ffmpeg_commands = [
-                # Best approach for WhatsApp OGG
                 [
                     'ffmpeg', '-y', '-i', input_path,
                     '-acodec', 'pcm_s16le', '-ac', '1', '-ar', '16000',
                     '-f', 'wav', output_path
                 ],
-                # Alternative approach
                 [
                     'ffmpeg', '-y', '-i', input_path,
                     '-c:a', 'pcm_s16le', '-ac', '1', '-ar', '16000',
                     output_path
                 ],
-                # Simple conversion as fallback
                 [
                     'ffmpeg', '-y', '-i', input_path,
                     output_path
@@ -522,9 +520,7 @@ class WhatsAppWebhookView(View):
                 except Exception as cmd_error:
                     logger.warning(f"FFmpeg command {i+1} error: {cmd_error}")
             
-            # If all FFmpeg approaches fail, fall back to the original normalize_audio function
             logger.info("Falling back to original normalize_audio function")
-            from .utils import normalize_audio  # Make sure to import your actual module
             fallback_result = normalize_audio(audio_bytes, input_format)
             
             # Clean up temporary files
@@ -540,7 +536,6 @@ class WhatsAppWebhookView(View):
         except Exception as e:
             logger.error(f"❌ WhatsApp audio processing completely failed: {str(e)}")
             
-            # Clean up any remaining temporary files
             try:
                 if 'input_path' in locals() and os.path.exists(input_path):
                     os.unlink(input_path)

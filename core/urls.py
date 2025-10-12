@@ -1,6 +1,7 @@
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from .views import (
+    home,
     RegisterView,
     CustomTokenObtainPairView,
     UserProfileView,
@@ -13,6 +14,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path("", home, name='home'),
     path("auth/register/", RegisterView.as_view(), name="register"),
     path("auth/login/", CustomTokenObtainPairView.as_view(), name="register"),
     path("user/profile/", UserProfileView.as_view(), name="user-profile"),
