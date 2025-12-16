@@ -82,7 +82,7 @@ def ask_gemini(prompt, lang):
     if not genai:
         return "I'm sorry, the Google Generative AI library is not installed."
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
     # Friendly assistant personality
     if lang == 'undefined':
