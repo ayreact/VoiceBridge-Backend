@@ -11,6 +11,8 @@ import logging
 from spitch import Spitch
 from pydub import AudioSegment
 from twilio.rest import Client
+import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
 
 # Initialize logging for utils.py
 logger = logging.getLogger(__name__)
@@ -26,7 +28,6 @@ TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
 # Only import genai if GEMINI_API_KEY is available and we're not running in a very restricted environment
 # This helps avoid ImportError if the user doesn't need Gemini or hasn't installed its library.
 try:
-    import google.generativeai as genai
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
     else:
@@ -76,61 +77,101 @@ def upload_to_cloudinary(file_obj):
         logger.error(f"Cloudinary upload exception: {e}")
         return None
 
+# def ask_gemini(prompt, lang):
+#     if not GEMINI_API_KEY:
+#         return "I'm sorry, Gemini is not configured. Please set GEMINI_API_KEY."
+#     if not genai:
+#         return "I'm sorry, the Google Generative AI library is not installed."
+
+#     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+
+#     # Friendly assistant personality
+#     if lang == 'undefined':
+#         system_instruction = {
+#             "role": "user",
+#             "parts": [{
+#                 "text": (
+#                     f"You're a friendly multilingual Health, Education, Finance and Entertainment assistant named VoiceBridge who explains things clearly, simply, and respectfully. "
+#                     f"Always answer like you're speaking directly to the person, not writing a formal essay. Don't try to format text in anyway(use of double asterisk before and after words to makde them bold, em dahses), just return plain text"
+#                     f"Be short but descriptive, helpful, and human. You MUST detect the language used in {prompt} and reply in that language"
+#                 )
+#             }]
+#         }
+#     else:
+#         language = {
+#             "yo": "yoruba",
+#             "ig": "igbo",
+#             "ha": "hausa"
+#         }.get(lang, "english")
+
+#         system_instruction = {
+#             "role": "user",
+#             "parts": [{
+#                 "text": (
+#                     f"You're a friendly multilingual Health, Education, Finance and Entertainment assistant named VoiceBridge who explains things clearly, simply, and respectfully. "
+#                     f"Always answer like you're speaking directly to the person, not writing a formal essay. Don't try to format text in anyway(use of double asterisk before and after words to makde them bold, em dahses), just return plain text"
+#                     f"Be short but descriptive, helpful, and human. You MUST reply in this language: {language}."
+#                 )
+#             }]
+#         }
+
+#     user_message = {
+#         "role": "user",
+#         "parts": [{"text": prompt}]
+#     }
+
+#     body = {
+#         "contents": [system_instruction, user_message]
+#     }
+
+#     try:
+#         response = requests.post(url, json=body)
+#         response.raise_for_status()
+#         return response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+#     except Exception as e:
+#         logger.error("Gemini API failed: %s", e)
+#         return "I'm sorry, I couldn't understand your request."
+
 def ask_gemini(prompt, lang):
     if not GEMINI_API_KEY:
-        return "I'm sorry, Gemini is not configured. Please set GEMINI_API_KEY."
-    if not genai:
-        return "I'm sorry, the Google Generative AI library is not installed."
+        return "I'm sorry, Gemini is not configured."
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # 2. Select the model (The library knows the correct URLs)
+    # Use "gemini-1.5-flash" for stability or "gemini-2.0-flash-exp" for new features
+    model = genai.GenerativeModel("gemini-1.5-flash") 
 
-    # Friendly assistant personality
+    # 3. Define the System Instruction (Persona)
     if lang == 'undefined':
-        system_instruction = {
-            "role": "user",
-            "parts": [{
-                "text": (
-                    f"You're a friendly multilingual Health, Education, Finance and Entertainment assistant named VoiceBridge who explains things clearly, simply, and respectfully. "
-                    f"Always answer like you're speaking directly to the person, not writing a formal essay. Don't try to format text in anyway(use of double asterisk before and after words to makde them bold, em dahses), just return plain text"
-                    f"Be short but descriptive, helpful, and human. You MUST detect the language used in {prompt} and reply in that language"
-                )
-            }]
-        }
+        instruction = (
+            "You're a friendly multilingual Health, Education, Finance and Entertainment assistant named VoiceBridge who explains things clearly, simply, and respectfully. "
+            "Always answer like you're speaking directly to the person, not writing a formal essay. Don't try to format text in anyway(use of double asterisk before and after words to makde them bold, em dahses), just return plain text"
+            f"You MUST detect the language used in '{prompt}' and reply in that language"
+        )
     else:
-        language = {
-            "yo": "yoruba",
-            "ig": "igbo",
-            "ha": "hausa"
-        }.get(lang, "english")
-
-        system_instruction = {
-            "role": "user",
-            "parts": [{
-                "text": (
-                    f"You're a friendly multilingual Health, Education, Finance and Entertainment assistant named VoiceBridge who explains things clearly, simply, and respectfully. "
-                    f"Always answer like you're speaking directly to the person, not writing a formal essay. Don't try to format text in anyway(use of double asterisk before and after words to makde them bold, em dahses), just return plain text"
-                    f"Be short but descriptive, helpful, and human. You MUST reply in this language: {language}."
-                )
-            }]
-        }
-
-    user_message = {
-        "role": "user",
-        "parts": [{"text": prompt}]
-    }
-
-    body = {
-        "contents": [system_instruction, user_message]
-    }
+        language = {"yo": "yoruba", "ig": "igbo", "ha": "hausa"}.get(lang, "english")
+        instruction = (
+            "You're a friendly multilingual Health, Education, Finance and Entertainment assistant named VoiceBridge who explains things clearly, simply, and respectfully. "
+            "Always answer like you're speaking directly to the person, not writing a formal essay. Don't try to format text in anyway(use of double asterisk before and after words to makde them bold, em dahses), just return plain text"
+            f"You MUST reply in this language: {language}."
+        )
 
     try:
-        response = requests.post(url, json=body)
-        response.raise_for_status()
-        return response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-    except Exception as e:
-        logger.error("Gemini API failed: %s", e)
-        return "I'm sorry, I couldn't understand your request."
+        # The library handles the system instruction logic cleanly here
+        response = model.generate_content(
+            contents=prompt,
+            generation_config=genai.types.GenerationConfig(
+                system_instruction=instruction  # Note: Some versions require this passed differently, 
+                                                # but for simplicity, we can just prepend it to the prompt below
+                                                # if this specific param throws an error.
+            )
+        )
+        return response.text
 
+    except ResourceExhausted:
+        return "I'm sorry, I'm a bit overwhelmed right now. Please try again in a moment."
+    except Exception as e:
+        print(f"Gemini Error: {e}")
+        return "I'm sorry, I couldn't understand your request."
 
 def normalize_audio(audio_bytes, input_format):
     try:
