@@ -132,39 +132,81 @@ def upload_to_cloudinary(file_obj):
 #         logger.error("Gemini API failed: %s", e)
 #         return "I'm sorry, I couldn't understand your request."
 
+# def ask_gemini(prompt, lang):
+#     if not GEMINI_API_KEY:
+#         return "I'm sorry, Gemini is not configured."
+
+#     # 2. Select the model (The library knows the correct URLs)
+#     # Use "gemini-1.5-flash" for stability or "gemini-2.0-flash-exp" for new features
+#     model = genai.GenerativeModel("gemini-1.5-flash") 
+
+#     # 3. Define the System Instruction (Persona)
+#     if lang == 'undefined':
+#         instruction = (
+#             "You're a friendly multilingual Health, Education, Finance and Entertainment assistant named VoiceBridge who explains things clearly, simply, and respectfully. "
+#             "Always answer like you're speaking directly to the person, not writing a formal essay. Don't try to format text in anyway(use of double asterisk before and after words to makde them bold, em dahses), just return plain text"
+#             f"You MUST detect the language used in '{prompt}' and reply in that language"
+#         )
+#     else:
+#         language = {"yo": "yoruba", "ig": "igbo", "ha": "hausa"}.get(lang, "english")
+#         instruction = (
+#             "You're a friendly multilingual Health, Education, Finance and Entertainment assistant named VoiceBridge who explains things clearly, simply, and respectfully. "
+#             "Always answer like you're speaking directly to the person, not writing a formal essay. Don't try to format text in anyway(use of double asterisk before and after words to makde them bold, em dahses), just return plain text"
+#             f"You MUST reply in this language: {language}."
+#         )
+
+#     try:
+#         # The library handles the system instruction logic cleanly here
+#         response = model.generate_content(
+#             contents=prompt,
+#             generation_config=genai.types.GenerationConfig(
+#                 system_instruction=instruction  # Note: Some versions require this passed differently, 
+#                                                 # but for simplicity, we can just prepend it to the prompt below
+#                                                 # if this specific param throws an error.
+#             )
+#         )
+#         return response.text
+
+#     except ResourceExhausted:
+#         return "I'm sorry, I'm a bit overwhelmed right now. Please try again in a moment."
+#     except Exception as e:
+#         print(f"Gemini Error: {e}")
+#         return "I'm sorry, I couldn't understand your request."
+    
 def ask_gemini(prompt, lang):
     if not GEMINI_API_KEY:
         return "I'm sorry, Gemini is not configured."
 
-    # 2. Select the model (The library knows the correct URLs)
-    # Use "gemini-1.5-flash" for stability or "gemini-2.0-flash-exp" for new features
-    model = genai.GenerativeModel("gemini-1.5-flash") 
+    # 1. Configure the library
+    genai.configure(api_key=GEMINI_API_KEY)
 
-    # 3. Define the System Instruction (Persona)
+    # 2. Define the System Instruction (Persona) logic
     if lang == 'undefined':
         instruction = (
             "You're a friendly multilingual Health, Education, Finance and Entertainment assistant named VoiceBridge who explains things clearly, simply, and respectfully. "
             "Always answer like you're speaking directly to the person, not writing a formal essay. Don't try to format text in anyway(use of double asterisk before and after words to makde them bold, em dahses), just return plain text"
-            f"You MUST detect the language used in '{prompt}' and reply in that language"
+            f"You MUST detect the language used in '{prompt}' and reply in that language. "
+            "Do not use markdown formatting."
         )
     else:
         language = {"yo": "yoruba", "ig": "igbo", "ha": "hausa"}.get(lang, "english")
         instruction = (
             "You're a friendly multilingual Health, Education, Finance and Entertainment assistant named VoiceBridge who explains things clearly, simply, and respectfully. "
             "Always answer like you're speaking directly to the person, not writing a formal essay. Don't try to format text in anyway(use of double asterisk before and after words to makde them bold, em dahses), just return plain text"
-            f"You MUST reply in this language: {language}."
+            f"You MUST reply in this language: {language}. "
+            "Do not use markdown formatting."
         )
 
+    # 3. Initialize the Model WITH the system instruction
+    # Note: We pass system_instruction HERE, not in generate_content
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        system_instruction=instruction
+    )
+
+    # 4. Generate Content
     try:
-        # The library handles the system instruction logic cleanly here
-        response = model.generate_content(
-            contents=prompt,
-            generation_config=genai.types.GenerationConfig(
-                system_instruction=instruction  # Note: Some versions require this passed differently, 
-                                                # but for simplicity, we can just prepend it to the prompt below
-                                                # if this specific param throws an error.
-            )
-        )
+        response = model.generate_content(prompt)
         return response.text
 
     except ResourceExhausted:
